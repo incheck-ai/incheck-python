@@ -80,21 +80,19 @@ def main() -> int:
             size = f"{d.size_bytes} bytes" if d.size_bytes else "?"
             print(f"  - {d.filename}  {size}")
 
-        # ---------------- Chat (unified mode — references the doc) ----------------
-        print("\n=== chat #1 (unified-mode — should reference the doc) ===")
-        conversation_id = str(uuid.uuid4())
+        # ---------------- Unified mode — chat against the Pod ----------------
+        print("\n=== chat #1 (unified mode — grounded in your Pod) ===")
         reply = client.chat.send(
-            org_id,
             "What does the uploaded document say? Summarize briefly.",
+            org_id=org_id,
             user_id="sdk-smoke",
-            conversation_id=conversation_id,
+            conversation_id=str(uuid.uuid4()),
         )
         print(reply.content)
 
-        # ---------------- Chat (EMS scope — generic protocol question) ----------------
-        print("\n=== chat #2 (EMS scope, generic — answers from general EMS knowledge) ===")
+        # ---------------- EMS mode — no Pod, no retrieval ----------------
+        print("\n=== chat #2 (EMS mode — general EMS knowledge, no org_id) ===")
         reply = client.chat.send(
-            org_id,
             "What is the maximum adult dose of epinephrine for anaphylaxis?",
             user_id="sdk-smoke",
             conversation_id=str(uuid.uuid4()),
@@ -103,10 +101,9 @@ def main() -> int:
         )
         print(reply.content)
 
-        # ---------------- Chat streaming ----------------
-        print("\n=== chat #3 (streaming) ===")
+        # ---------------- Streaming (EMS) ----------------
+        print("\n=== chat #3 (streaming, EMS mode) ===")
         for chunk in client.chat.stream(
-            org_id,
             "List three bullet points about scene safety.",
             user_id="sdk-smoke",
         ):

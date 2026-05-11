@@ -1,14 +1,18 @@
-"""Document-aware chat — proxies ``/chat`` on the InCheck gateway.
+"""Chat — proxies ``/chat`` on the InCheck gateway.
 
-The gateway always streams internally; the SDK exposes both modes:
+InCheck has two operating modes, both served by the same call:
 
-* :meth:`ChatResource.send` returns a single :class:`ChatResponse` with the
-  full content joined.
-* :meth:`ChatResource.stream` yields :class:`ChatChunk` events as they arrive.
+**EMS mode** — answers from general EMS knowledge under the given
+``scope`` and ``state``. No document retrieval. Use it when you don't
+have a knowledge Pod onboarded yet, or for questions that aren't tied
+to a specific document.
 
-The ``org_id`` you pass MUST be hierarchical and start with your namespace
-(the same value you use when onboarding documents). It drives unified-mode
-retrieval upstream — chat answers will reference your ingested corpus.
+**Unified mode** — answers grounded in the documents you've onboarded
+into a Pod (one Pod per ``org_id``). Pass ``org_id`` to enable it;
+omit ``org_id`` for EMS mode.
+
+You can supply ``send`` for a single aggregated reply or ``stream`` for
+incremental :class:`~incheck.models.ChatChunk` events.
 """
 
 from __future__ import annotations
@@ -27,7 +31,6 @@ if TYPE_CHECKING:
 
 def _build_payload(
     *,
-    org_id: str,
     content: str,
     user_id: str,
     conversation_id: str | None,
@@ -35,17 +38,23 @@ def _build_payload(
     state: str,
     streaming: bool,
     conversation_hx: str | None,
+    org_id: str | None,
 ) -> dict:
-    return {
+    payload: dict = {
         "conversation_id": conversation_id or str(uuid.uuid4()),
         "user_id": user_id,
-        "org_id": org_id,
         "streaming": streaming,
         "content": content,
         "scope": scope,
         "state": state,
         "conversation_hx": conversation_hx,
     }
+    # Unified mode is opt-in. Omitting the key — not setting it to null —
+    # keeps the gateway log clean and avoids any chance of a flaky upstream
+    # treating null differently from missing.
+    if org_id:
+        payload["org_id"] = org_id
+    return payload
 
 
 def _iter_sse_lines(text: str) -> Iterator[ChatChunk]:
@@ -84,9 +93,9 @@ class ChatResource:
 
     def send(
         self,
-        org_id: str,
         content: str,
         *,
+        org_id: str | None = None,
         user_id: str = "sdk",
         conversation_id: str | None = None,
         scope: str = "ALS",
@@ -96,16 +105,33 @@ class ChatResource:
         """Send a chat message and return the aggregated reply.
 
         Args:
-            org_id: Your hierarchical org_id (e.g. ``"acme_dispatch"``).
             content: The user message.
-            user_id: An identifier for the end-user. Free-form.
+            org_id: Optional. Pass your Pod's hierarchical org_id to run
+                in **unified mode** (retrieval-aware against the documents
+                onboarded into that Pod via the Documents API). Omit it
+                to run in **EMS mode** (general EMS knowledge, no
+                retrieval). First segment must equal your namespace.
+            user_id: An identifier for the end-user. Audit trail only.
             conversation_id: Optional — a UUID is generated if omitted.
             scope: EMS scope (``"ALS"``, ``"BLS"``, …).
             state: US state for state-specific protocols.
             conversation_hx: Optional prior conversation context.
+
+        Returns:
+            A :class:`~incheck.models.ChatResponse` with ``content``
+            joined and the raw chunks available on ``raw``.
+
+        Example:
+            >>> # EMS mode — no Pod needed
+            >>> client.chat.send("Adult atropine dose for bradycardia?")
+
+            >>> # Unified mode — answer from your onboarded Pod
+            >>> client.chat.send(
+            ...     "Per our SOP, what's the hazmat escalation path?",
+            ...     org_id="acme_dispatch",
+            ... )
         """
         payload = _build_payload(
-            org_id=org_id,
             content=content,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -113,6 +139,7 @@ class ChatResource:
             state=state,
             streaming=False,
             conversation_hx=conversation_hx,
+            org_id=org_id,
         )
         response = self._client._http.post("/chat", json=payload)
         if response.status_code != 200:
@@ -124,9 +151,9 @@ class ChatResource:
 
     def stream(
         self,
-        org_id: str,
         content: str,
         *,
+        org_id: str | None = None,
         user_id: str = "sdk",
         conversation_id: str | None = None,
         scope: str = "ALS",
@@ -135,10 +162,19 @@ class ChatResource:
     ) -> Iterator[ChatChunk]:
         """Stream chat chunks as they arrive (SSE).
 
-        The generator terminates on the ``type='complete'`` marker.
+        Identical contract to :meth:`send`, but yields each
+        :class:`~incheck.models.ChatChunk` as it lands. Terminates on
+        the ``type='complete'`` marker.
+
+        Example:
+            >>> for chunk in client.chat.stream(
+            ...     "Summarize the dispatch SOP.",
+            ...     org_id="acme_dispatch",
+            ... ):
+            ...     if chunk.content:
+            ...         print(chunk.content, end="", flush=True)
         """
         payload = _build_payload(
-            org_id=org_id,
             content=content,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -146,6 +182,7 @@ class ChatResource:
             state=state,
             streaming=True,
             conversation_hx=conversation_hx,
+            org_id=org_id,
         )
         with self._client._http.stream("POST", "/chat", json=payload) as response:
             if response.status_code != 200:
@@ -182,17 +219,17 @@ class AsyncChatResource:
 
     async def send(
         self,
-        org_id: str,
         content: str,
         *,
+        org_id: str | None = None,
         user_id: str = "sdk",
         conversation_id: str | None = None,
         scope: str = "ALS",
         state: str = "Massachusetts",
         conversation_hx: str | None = None,
     ) -> ChatResponse:
+        """Async counterpart of :meth:`ChatResource.send`."""
         payload = _build_payload(
-            org_id=org_id,
             content=content,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -200,6 +237,7 @@ class AsyncChatResource:
             state=state,
             streaming=False,
             conversation_hx=conversation_hx,
+            org_id=org_id,
         )
         response = await self._client._http.post("/chat", json=payload)
         if response.status_code != 200:
@@ -211,17 +249,17 @@ class AsyncChatResource:
 
     async def stream(
         self,
-        org_id: str,
         content: str,
         *,
+        org_id: str | None = None,
         user_id: str = "sdk",
         conversation_id: str | None = None,
         scope: str = "ALS",
         state: str = "Massachusetts",
         conversation_hx: str | None = None,
     ) -> AsyncIterator[ChatChunk]:
+        """Async counterpart of :meth:`ChatResource.stream`."""
         payload = _build_payload(
-            org_id=org_id,
             content=content,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -229,6 +267,7 @@ class AsyncChatResource:
             state=state,
             streaming=True,
             conversation_hx=conversation_hx,
+            org_id=org_id,
         )
         async with self._client._http.stream("POST", "/chat", json=payload) as response:
             if response.status_code != 200:

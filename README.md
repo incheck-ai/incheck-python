@@ -1,13 +1,16 @@
 # incheck
 
 The official Python SDK for the [InCheck AI](https://incheck.ai) platform.
-Onboard documents into per-tenant collections and chat against them with
-typed, retrieval-aware responses — in a few lines of idiomatic Python.
+Two operating modes, one client, typed end-to-end:
 
-> **Status:** `0.0.1` — document onboarding + chat (sync + async + streaming).
-> Default is **production** (`https://api.incheck.ai`). Use the **staging**
-> environment (`https://api-acceptance.incheck.ai`) to validate your
-> integration end-to-end before going live.
+- **EMS mode** — ask the model an EMS protocol question. No setup
+  required beyond an API key.
+- **Unified mode** — onboard one or more documents into a **Pod** (one
+  Pod per `org_id`), then chat against that Pod and the answers are
+  grounded in *your* content.
+
+> **Status:** `0.0.2` — chat (EMS + unified, sync/async/streaming) and
+> document onboarding (Pods, presigned uploads, processing jobs).
 
 ## Install
 
@@ -21,54 +24,84 @@ Requires Python 3.10+.
 
 ## Authenticate
 
-Generate an API key from the InCheck admin (`/admin/api-keys` — Teams plan
-+ admin role required) and either pass it explicitly or set the env var:
+Generate an API key from the InCheck admin (`/admin/api-keys` — Teams
+plan + admin role) and set the env var:
 
 ```bash
 export INCHECK_API_KEY="incheck_prod_..."
 ```
 
-The SDK never sends your org UUID on the wire — the gateway derives it
-from your key and enforces a per-tenant **namespace** on every request.
-Your namespace is the lowercase-alphanumeric form of your subdomain, and
-every `org_id` you push to or chat against must start with `<namespace>_`.
+Your key is bound to one organization. InCheck derives a **namespace**
+from your org's subdomain — every `org_id` you use must start with
+`<namespace>_`. Cross-namespace requests are rejected at the gateway.
 
-## Quickstart
+## EMS mode — no setup, just chat
+
+```python
+from incheck import Client
+
+with Client() as client:
+    reply = client.chat.send(
+        "Adult dose of atropine for symptomatic bradycardia?",
+        scope="ALS",
+        state="Massachusetts",
+    )
+    print(reply.content)
+```
+
+That's it. The model answers from general EMS knowledge under the
+given `scope`/`state`. No `org_id` needed.
+
+## Unified mode — chat with your documents
+
+Onboard documents once (a **Pod**), then chat against that Pod. A Pod
+is identified by your `org_id`; you can hold multiple files in the
+same Pod and query across all of them.
 
 ```python
 from incheck import Client
 
 with Client() as client:
     namespace = client.documents.list_orgs().filtered_by
-    org_id = f"{namespace}_dispatch"
+    org_id = f"{namespace}_dispatch"           # your Pod
 
-    # Upload — initiate → S3 (presigned) → complete → poll, all in one call
+    # 1. Onboard documents — initiate → upload → complete → poll, in one call.
     status = client.documents.upload(
         org_id,
-        files=["./protocols.pdf", "./policies.docx"],
+        files=["./dispatch_sop.pdf", "./policies.docx"],
     )
     print("processed:", status.progress.processed_pages, "pages")
 
-    # Chat — retrieval-aware against the ingested corpus
+    # 2. Chat against the Pod
     reply = client.chat.send(
-        org_id,
-        "What are the indications for epinephrine in our protocols?",
+        "What's our hazmat escalation policy?",
+        org_id=org_id,                          # ← turns on unified mode
         user_id="alice@hospital.org",
     )
     print(reply.content)
 ```
 
+You can add or update files in the Pod later with `documents.upload(...)`
+again, or scope the change with `initiate_update` / `complete_update`.
+
+> **How does the document processing work?** That's our IP. The contract
+> you see — upload, wait for the job to complete, query — is the whole
+> public surface. If you need deeper guarantees about extraction
+> accuracy, retention, or custom pipelines, talk to us.
+
 ## Streaming
 
+Both modes support streaming:
+
 ```python
-for chunk in client.chat.stream(org_id, "Summarize the dispatch SOP."):
+for chunk in client.chat.stream("Summarize the SOP.", org_id="acme_dispatch"):
     if chunk.content:
         print(chunk.content, end="", flush=True)
 ```
 
 ## Async
 
-The SDK ships an async client that mirrors the sync API one-for-one:
+The SDK ships an async client with the same method names:
 
 ```python
 import asyncio
@@ -76,38 +109,57 @@ from incheck import AsyncClient
 
 async def main():
     async with AsyncClient() as client:
-        status = await client.documents.upload("acme_dispatch", ["./doc.pdf"])
-        reply = await client.chat.send("acme_dispatch", "Summarize.")
-        print(reply.content)
+        # EMS
+        r = await client.chat.send("Adult dose of epinephrine for anaphylaxis?")
+        print(r.content)
+
+        # Unified
+        await client.documents.upload("acme_dispatch", ["./sop.pdf"])
+        r = await client.chat.send("Summarize.", org_id="acme_dispatch")
+        print(r.content)
 
 asyncio.run(main())
 ```
 
-## Endpoints covered in 0.0.1
+## Environments
+
+| Environment | Base URL | When to use |
+|---|---|---|
+| `production` | `https://api.incheck.ai` | live traffic |
+| `staging` | `https://api-acceptance.incheck.ai` | integration testing |
+
+Pick one in code or via env var. Production is the default.
+
+```python
+Client(environment="staging")          # explicit
+# or: INCHECK_ENVIRONMENT=staging      # via env
+```
+
+## Endpoints covered
 
 ### Documents
 
-| Method | Description |
+| Method | What it does |
 |---|---|
-| `client.documents.list_orgs()` | every org_id under your namespace |
-| `client.documents.list(org_id)` | documents in the current version, with presigned GETs |
+| `client.documents.upload(org_id, files, wait=True)` | one-shot: initiate → upload → complete → poll |
+| `client.documents.list_orgs()` | every Pod (`org_id`) under your namespace |
+| `client.documents.list(org_id)` | files in a Pod's current version |
 | `client.documents.version(org_id)` | metadata about the current version |
-| `client.documents.upload(org_id, files, wait=True)` | one-shot initiate → S3 → complete → wait |
-| `client.documents.initiate_upload(...)` | low-level — get presigned POSTs |
+| `client.documents.initiate_upload(...)` | low-level — get presigned uploads |
 | `client.documents.complete_upload(...)` | low-level — trigger processing |
-| `client.documents.initiate_update(...)` | add/replace files in an existing org_id |
+| `client.documents.initiate_update(...)` | add or replace files in an existing Pod |
 | `client.documents.complete_update(...)` | finalise an update |
 | `client.documents.job(job_id)` | status snapshot |
-| `client.documents.wait_for_job(job_id)` | block until the job is terminal |
+| `client.documents.wait_for_job(job_id)` | block until terminal |
 | `client.documents.delete_version(org_id, version)` | delete one version |
-| `client.documents.delete(org_id)` | delete the entire org_id |
+| `client.documents.delete(org_id)` | delete a whole Pod |
 
 ### Chat
 
-| Method | Description |
+| Method | What it does |
 |---|---|
-| `client.chat.send(org_id, content, ...)` | full reply, retrieval-aware |
-| `client.chat.stream(org_id, content, ...)` | yields chunks as they arrive (SSE) |
+| `client.chat.send(content, *, org_id=None, ...)` | aggregated reply (EMS if `org_id` omitted, unified if set) |
+| `client.chat.stream(content, *, org_id=None, ...)` | streamed chunks as they arrive |
 
 `AsyncClient` exposes the same methods under the same names.
 
@@ -120,6 +172,7 @@ from incheck import (
     Client,
     AuthenticationError,
     PermissionError,
+    ValidationError,
     JobFailedError,
     JobTimeoutError,
     RateLimitError,
@@ -127,11 +180,13 @@ from incheck import (
 
 with Client() as client:
     try:
-        client.documents.upload("royal_dispatch", ["./doc.pdf"])  # wrong namespace
+        client.documents.upload("royal_dispatch", ["./sop.pdf"])
     except PermissionError as e:
-        print("nope:", e)              # 403 from the gateway namespace check
+        print("namespace mismatch:", e)
+    except ValidationError as e:
+        print("bad request:", e)
     except JobFailedError as e:
-        print("processing failed:", e.status)
+        print("processing failed:", e.job_id, e.status)
     except JobTimeoutError as e:
         print("still pending:", e.last_status)
     except RateLimitError as e:
@@ -144,30 +199,6 @@ Hierarchy: `IncheckError` → `AuthenticationError`, `PermissionError`,
 `NotFoundError`, `ValidationError`, `RateLimitError`, `APIError`,
 `APIConnectionError`, `JobFailedError`, `JobTimeoutError`.
 
-## Environments
-
-There are two managed environments. Production is the default; use staging
-to validate your integration end-to-end before flipping over.
-
-| Environment | Base URL | When to use |
-|---|---|---|
-| `production` | `https://api.incheck.ai` | live customer traffic |
-| `staging` | `https://api-acceptance.incheck.ai` | integration testing, smoke flows |
-
-Pick one in code or via env var (in priority order):
-
-```python
-# Explicit base URL — wins over everything
-Client(base_url="https://api-acceptance.incheck.ai")
-
-# Named environment
-Client(environment="staging")
-
-# From the env
-# INCHECK_BASE_URL=...   or   INCHECK_ENVIRONMENT=staging
-Client()
-```
-
 ## Configuration
 
 | Env var | Default | Notes |
@@ -176,7 +207,21 @@ Client()
 | `INCHECK_ENVIRONMENT` | `production` | `production` or `staging` |
 | `INCHECK_BASE_URL` | — | full URL override (highest priority) |
 
-You can also pass `api_key=`, `environment=`, and `base_url=` explicitly.
+You can also pass `api_key=`, `environment=`, and `base_url=` explicitly
+to either client.
+
+## Breaking changes since 0.0.1
+
+`chat.send` and `chat.stream` no longer take `org_id` as the first
+positional argument. The new signature is:
+
+```python
+client.chat.send(content, *, org_id=None, ...)
+```
+
+Callers that previously did `chat.send(org_id, content)` should switch
+to `chat.send(content, org_id=org_id)`. Omitting `org_id` is the new
+EMS-mode shape.
 
 ## License
 

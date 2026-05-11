@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
-from ._transport import DEFAULT_BASE_URL, build_headers
+from ._transport import build_headers, resolve_base_url
 from .exceptions import AuthenticationError
 from .resources import AsyncChatResource, AsyncDocumentsResource
+
+
+Environment = Literal["production", "staging"]
 
 
 class AsyncClient:
@@ -18,7 +21,7 @@ class AsyncClient:
         from incheck import AsyncClient
 
         async def main():
-            async with AsyncClient() as client:
+            async with AsyncClient(environment="staging") as client:
                 orgs = await client.documents.list_orgs()
                 print(orgs.org_ids)
 
@@ -29,7 +32,8 @@ class AsyncClient:
         self,
         api_key: str | None = None,
         *,
-        base_url: str = DEFAULT_BASE_URL,
+        environment: Environment | None = None,
+        base_url: str | None = None,
         timeout: float = 120.0,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
@@ -40,8 +44,12 @@ class AsyncClient:
                 "in the environment."
             )
         self._api_key = resolved_key
-        resolved_base = os.environ.get("INCHECK_BASE_URL") or base_url
-        self._base_url = resolved_base.rstrip("/")
+        self._base_url = resolve_base_url(
+            explicit_base_url=base_url,
+            environment=environment,
+            env_base_url=os.environ.get("INCHECK_BASE_URL"),
+            env_environment=os.environ.get("INCHECK_ENVIRONMENT"),
+        ).rstrip("/")
 
         if http_client is not None:
             self._http = http_client

@@ -19,6 +19,41 @@ from .exceptions import (
 DEFAULT_BASE_URL = "https://api.incheck.ai"
 USER_AGENT = f"incheck-python/{__version__}"
 
+ENVIRONMENTS: dict[str, str] = {
+    "production": "https://api.incheck.ai",
+    "staging": "https://api-acceptance.incheck.ai",
+}
+
+
+def resolve_base_url(
+    *,
+    explicit_base_url: str | None,
+    environment: str | None,
+    env_base_url: str | None,
+    env_environment: str | None,
+) -> str:
+    """Decide which base URL to use, in priority order.
+
+    1. ``base_url=`` passed to the client constructor
+    2. ``INCHECK_BASE_URL`` env var
+    3. ``environment=`` passed to the constructor (``"production"`` / ``"staging"``)
+    4. ``INCHECK_ENVIRONMENT`` env var
+    5. Default production URL
+    """
+    if explicit_base_url:
+        return explicit_base_url
+    if env_base_url:
+        return env_base_url
+    env_name = (environment or env_environment or "").lower().strip()
+    if env_name:
+        if env_name not in ENVIRONMENTS:
+            valid = ", ".join(sorted(ENVIRONMENTS))
+            raise ValueError(
+                f"Unknown environment {env_name!r}. Valid options: {valid}."
+            )
+        return ENVIRONMENTS[env_name]
+    return DEFAULT_BASE_URL
+
 
 def build_headers(api_key: str, extra: dict[str, str] | None = None) -> dict[str, str]:
     headers = {

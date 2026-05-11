@@ -5,9 +5,9 @@ Onboard documents into per-tenant collections and chat against them with
 typed, retrieval-aware responses — in a few lines of idiomatic Python.
 
 > **Status:** `0.0.1` — document onboarding + chat (sync + async + streaming).
-> Default `base_url` is `https://api.incheck.ai` (will go live alongside the
-> prod cutover). For the acceptance environment available today, set
-> `INCHECK_BASE_URL=https://api-acceptance.incheck.ai`.
+> Default is **production** (`https://api.incheck.ai`). Use the **staging**
+> environment (`https://api-acceptance.incheck.ai`) to validate your
+> integration end-to-end before going live.
 
 ## Install
 
@@ -144,14 +144,39 @@ Hierarchy: `IncheckError` → `AuthenticationError`, `PermissionError`,
 `NotFoundError`, `ValidationError`, `RateLimitError`, `APIError`,
 `APIConnectionError`, `JobFailedError`, `JobTimeoutError`.
 
+## Environments
+
+There are two managed environments. Production is the default; use staging
+to validate your integration end-to-end before flipping over.
+
+| Environment | Base URL | When to use |
+|---|---|---|
+| `production` | `https://api.incheck.ai` | live customer traffic |
+| `staging` | `https://api-acceptance.incheck.ai` | integration testing, smoke flows |
+
+Pick one in code or via env var (in priority order):
+
+```python
+# Explicit base URL — wins over everything
+Client(base_url="https://api-acceptance.incheck.ai")
+
+# Named environment
+Client(environment="staging")
+
+# From the env
+# INCHECK_BASE_URL=...   or   INCHECK_ENVIRONMENT=staging
+Client()
+```
+
 ## Configuration
 
 | Env var | Default | Notes |
 |---|---|---|
 | `INCHECK_API_KEY` | — | required |
-| `INCHECK_BASE_URL` | `https://api.incheck.ai` | override for acceptance / on-prem |
+| `INCHECK_ENVIRONMENT` | `production` | `production` or `staging` |
+| `INCHECK_BASE_URL` | — | full URL override (highest priority) |
 
-You can also pass `api_key=` and `base_url=` explicitly to either client.
+You can also pass `api_key=`, `environment=`, and `base_url=` explicitly.
 
 ## License
 

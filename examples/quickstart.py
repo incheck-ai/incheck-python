@@ -44,7 +44,9 @@ def main() -> int:
         print(f"ERROR: file not found: {pdf}", file=sys.stderr)
         return 2
 
-    with Client() as client:
+    # Until prod cuts over, target the staging environment explicitly.
+    # Once prod is live, drop the kwarg — `Client()` defaults to production.
+    with Client(environment="staging") as client:
         namespace = _resolve_namespace(client)
         print(f"Namespace: {namespace}")
 

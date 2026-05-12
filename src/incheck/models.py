@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -162,7 +162,14 @@ class JobStatus(_IncheckModel):
 
 
 class DeleteResponse(_IncheckModel):
-    success: bool
+    """Result of a successful delete.
+
+    The API returns 2xx on a successful delete with a body shaped like
+    ``{"message": "Deleted permanently"}``. ``success`` is synthesised
+    from the HTTP status — anything reaching this model is a success.
+    """
+
+    success: bool = True
     org_id: str | None = None
     version: str | None = None
     message: str | None = None
@@ -171,6 +178,22 @@ class DeleteResponse(_IncheckModel):
 # ---------------------------------------------------------------------------
 # Chat
 # ---------------------------------------------------------------------------
+
+
+class ChatMessage(_IncheckModel):
+    """One prior turn in a multi-turn chat.
+
+    Wire-compatible with the OpenAI / Anthropic Messages API shape.
+    Pass a list of these (or plain dicts of the same shape) as
+    ``messages=`` to :meth:`incheck.Client.chat.send` / ``stream`` to
+    give the model the conversation so far. Prior turns must alternate
+    ``user`` / ``assistant`` starting with ``user`` and ending with
+    ``assistant`` — the current user turn lives in the positional
+    ``content`` argument and is appended by the gateway.
+    """
+
+    role: Literal["user", "assistant"]
+    content: str
 
 
 class ChatChunk(_IncheckModel):

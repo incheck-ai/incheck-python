@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "incheck"
-version = "0.0.2"
+version = "0.0.3"
 description = "Official Python SDK for the InCheck AI platform."
 readme = "README.md"
 license = { text = "MIT" }

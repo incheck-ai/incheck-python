@@ -17,6 +17,7 @@ from .exceptions import (
 )
 from .models import (
     ChatChunk,
+    ChatMessage,
     ChatResponse,
     DeleteResponse,
     DocumentInfo,
@@ -51,6 +52,7 @@ __all__ = [
     "ValidationError",
     # models
     "ChatChunk",
+    "ChatMessage",
     "ChatResponse",
     "DeleteResponse",
     "DocumentInfo",

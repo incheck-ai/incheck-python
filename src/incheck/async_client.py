@@ -7,7 +7,7 @@ import httpx
 
 from ._transport import build_headers, resolve_base_url
 from .exceptions import AuthenticationError
-from .resources import AsyncChatResource, AsyncDocumentsResource
+from .resources import AsyncChatResource, AsyncDocumentsResource, AsyncMetadataResource
 
 
 Environment = Literal["production", "staging"]
@@ -64,6 +64,7 @@ class AsyncClient:
 
         self.documents = AsyncDocumentsResource(self)
         self.chat = AsyncChatResource(self)
+        self.metadata = AsyncMetadataResource(self)
 
     @property
     def base_url(self) -> str:

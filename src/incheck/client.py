@@ -7,7 +7,7 @@ import httpx
 
 from ._transport import build_headers, resolve_base_url
 from .exceptions import AuthenticationError
-from .resources import ChatResource, DocumentsResource
+from .resources import ChatResource, DocumentsResource, MetadataResource
 
 
 Environment = Literal["production", "staging"]
@@ -64,6 +64,7 @@ class Client:
 
         self.documents = DocumentsResource(self)
         self.chat = ChatResource(self)
+        self.metadata = MetadataResource(self)
 
     @property
     def base_url(self) -> str:

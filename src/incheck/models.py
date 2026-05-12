@@ -216,6 +216,39 @@ class ChatResponse(_IncheckModel):
 
 
 # ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+
+
+class StateOrScope(_IncheckModel):
+    """A single ``state`` or ``scope`` entry returned by metadata.
+
+    Only ``value`` is part of the wire contract — that's what you send
+    on ``/chat``. ``label`` is for human display (UI dropdowns, picker
+    text) and is never accepted by the API.
+    """
+
+    value: str
+    label: str
+
+
+class StatesAndScopesResponse(_IncheckModel):
+    """The reference data behind ``/chat``'s ``state`` / ``scope`` fields.
+
+    Use :attr:`default_state` and :attr:`default_scope` as sensible
+    defaults for your UI, and ``scopes_by_state`` (falling back to
+    the ``"_default"`` key) to constrain a scope picker to the
+    scopes valid for the currently selected state.
+    """
+
+    default_state: str
+    default_scope: str
+    states: list[StateOrScope]
+    scopes: list[StateOrScope]
+    scopes_by_state: dict[str, list[str]]
+
+
+# ---------------------------------------------------------------------------
 # Misc
 # ---------------------------------------------------------------------------
 

@@ -152,10 +152,43 @@ def main() -> int:
         _ok(f"namespace = {namespace!r}; existing Pods: {len(orgs.org_ids)}")
 
         # ------------------------------------------------------------------
-        _h("1. EMS mode — non-streaming, default ALS / California-LAC")
+        _h("0b. Metadata — GET /states-and-scopes")
+        default_scope = "ALS"
+        default_state = "California-LAC"
+        try:
+            meta = client.metadata.states_and_scopes()
+            assert meta.default_state, "default_state empty"
+            assert meta.default_scope, "default_scope empty"
+            assert meta.states, "states list empty"
+            assert meta.scopes, "scopes list empty"
+            assert "_default" in meta.scopes_by_state, \
+                "scopes_by_state missing _default fallback"
+
+            state_values = {s.value for s in meta.states}
+            scope_values = {s.value for s in meta.scopes}
+            assert meta.default_state in state_values, \
+                f"default_state {meta.default_state!r} not in states list"
+            assert meta.default_scope in scope_values, \
+                f"default_scope {meta.default_scope!r} not in scopes list"
+
+            default_scope = meta.default_scope
+            default_state = meta.default_state
+            _ok(
+                f"defaults state={meta.default_state!r} scope={meta.default_scope!r}; "
+                f"{len(meta.states)} state(s), {len(meta.scopes)} scope(s); "
+                f"scopes_by_state keys={sorted(meta.scopes_by_state)[:5]}"
+            )
+        except Exception as e:
+            failures.append(f"metadata states_and_scopes: {e}")
+            traceback.print_exc()
+
+        # ------------------------------------------------------------------
+        _h(f"1. EMS mode — non-streaming, defaults ({default_scope} / {default_state})")
         try:
             reply = client.chat.send(
                 "What's the adult dose of atropine for symptomatic bradycardia?",
+                scope=default_scope,
+                state=default_state,
                 conversation_id=f"smoke-ems-{RUN_TAG}-1",
                 user_id="smoke@incheck.ai",
             )
